@@ -177,7 +177,7 @@ class MediaDownloader(QMainWindow):
         # 4. 开始下载按钮
         btn_layout = QHBoxLayout()
         self.download_btn = QPushButton("开始下载")
-        self.download_btn.setFixedHeight(40)
+        self.download_btn.setFixedHeight(30)
         self.download_btn.clicked.connect(self.start_download)
         btn_layout.addWidget(self.download_btn)
         btn_layout.addStretch()
