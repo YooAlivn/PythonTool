@@ -128,7 +128,7 @@ class MediaDownloader(QMainWindow):
         self.save_edit = QLineEdit()
         self.save_edit.setPlaceholderText("选择媒体文件保存的路径...")
         self.save_edit.setReadOnly(True)
-        default_save_path = f'D:/yutobe/{time.strftime('%Y-%m-%d_%H%M%S')}'
+        default_save_path = f'D:/yutobe/{time.strftime('%Y-%m-%d')}'
         self.save_edit.setText(default_save_path)
         if not os.path.exists(default_save_path):
             os.makedirs(default_save_path, exist_ok=True)
