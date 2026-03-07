@@ -1,10 +1,11 @@
+import subprocess
 import sys
 import os
 import time
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLineEdit, QPushButton, QComboBox, QTextEdit, QFileDialog,
-    QLabel, QSizePolicy
+    QLabel, QSizePolicy, QCheckBox
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QTextCursor, QPalette, QColor
@@ -43,6 +44,16 @@ class DownloadThread(QThread):
         self.media_type = window_param.get("media_type")
         self.media_url = window_param.get("media_url")
         self.cookie_file = window_param.get("cookie_file")
+        self.convert_169 = window_param.get("convert_169")
+
+    def run_ffmpeg_command(self, command, msg):
+        self.log_signal.emit(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] cmd: {command}")
+        result = subprocess.run(command, shell=True, capture_output=True, text=True)
+        if result.returncode == 0:
+            self.log_signal.emit(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
+        else:
+            self.log_signal.emit(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 命令执行失败")
+        return result.returncode
 
     def run(self):
         try:
@@ -51,6 +62,7 @@ class DownloadThread(QThread):
             self.log_signal.emit(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 保存路径: {self.save_path}")
             self.log_signal.emit(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 媒体地址: {self.media_url}")
             self.log_signal.emit(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Cookie地址: {self.cookie_file}")
+            self.log_signal.emit(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {'已经开启视频转换16：9' if self.convert_169 else '未开启转换成16：9'}")
 
             ydl_opts = {
                 'format': self.media_type,
@@ -62,9 +74,9 @@ class DownloadThread(QThread):
                 'writethumbnail' : True,
                 'noplaylist': True,
                 # FFmpeg路径
-                'ffmpeg': 'F:/downloader/ffmpeg-2025-08-18-git-0226b6fb2c-full_build/bin/ffmpeg.exe',
-                'outtmpl': '%(title)s.%(ext)s'
-
+                'ffmpeg': 'C:/Z_SOFTWARE/pytools/ffmpeg-2026-02-26-git-6695528af6-full_build/bin/ffmpeg.exe',
+                'outtmpl': '%(title).50s.%(ext)s',
+                'restrictfilenames': True
             }
             # 设置Cookie
             if self.cookie_file:
@@ -72,12 +84,44 @@ class DownloadThread(QThread):
 
                 # 开始下载
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([self.media_url])
+                info_dict = ydl.extract_info(self.media_url, download=True)
+                # 2. 获取完整文件路径
+                full_path = ydl.prepare_filename(info_dict)
+                self.log_signal.emit(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 完整文件路径: {full_path}")
+                new_time_str = time.strftime('%Y%m%d%H%M%S')
+                # 低质量原文件
+                src_lp_media_name = os.path.join(self.save_path, f'lp_{new_time_str}.mp4')
+                os.rename(full_path, src_lp_media_name)
+
+                # 高质量mp4
+                hp_mp4 = os.path.join(self.save_path, f'hp_{new_time_str}.mp4')
+                ffmpeg_cmd = (f"ffmpeg -i {src_lp_media_name} -c:v libx264 -crf 18 "
+                              f"-preset slow -tune film -pix_fmt yuv420p -profile:v high -movflags +faststart "
+                              f"-c:a aac -b:a 192k {hp_mp4}")
+                ##### 转换为高质量mp4
+                if self.run_ffmpeg_command(ffmpeg_cmd, "重新编码完成") == 0:
+                    os.remove(src_lp_media_name)
+
+                video_16_9_add_logo = None
+                # 转为16：9视频 并添加水印
+                if self.convert_169:
+                    ### 转换为16：9
+                    video_16_9 = os.path.join(self.save_path, f'hp_{new_time_str}_16_9.mp4')
+                    command = (f'ffmpeg -y -i "{hp_mp4}" '
+                               f'-filter_complex "[0:v]scale=ih*16/9:-1,boxblur=luma_radius=min(h\,w)/20:luma_power=1:chroma_radius=min(h\,w)/20:chroma_power=1,setsar=1[bg];[0:v]scale=-1:ih[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,crop=w=iw:h=iw*9/16" '
+                               f'-c:a copy "{video_16_9}"')
+                    if self.run_ffmpeg_command(command, "视频已经转换为16：9规格") == 0:
+                        os.remove(hp_mp4)
+                    ### 添加文本
+                    video_16_9_add_logo = os.path.join(self.save_path, f'hp_{new_time_str}_16_9_add_logo.mp4')
+                    logo = r"E:/yutobe/logo/logo31.png"
+                    add_logo = f'ffmpeg -y -i {video_16_9} -i "{logo}" -filter_complex "[1:v]scale=150:-1,format=rgba,colorchannelmixer=aa=0.8[logo];[0:v][logo]overlay=W-w-10:10" -c:v libx264 -crf 23 -c:a copy {video_16_9_add_logo}'
+                    if self.run_ffmpeg_command(add_logo, "视频已经成功添加logo") == 0:
+                        os.remove(video_16_9)
 
             # 模拟下载完成
-            filename = os.path.basename(self.media_url) or f"download_{int(time.time())}.{self.media_type}"
-            full_path = os.path.join(self.save_path, filename)
-            self.log_signal.emit(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 下载完成！文件保存至: {full_path}")
+            self.log_signal.emit(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 下载并处理完成！文件保存至: "
+                                 f"{video_16_9_add_logo if video_16_9_add_logo else hp_mp4}")
             self.finish_signal.emit(True)
 
         except Exception as e:
@@ -128,7 +172,7 @@ class MediaDownloader(QMainWindow):
         self.save_edit = QLineEdit()
         self.save_edit.setPlaceholderText("选择媒体文件保存的路径...")
         self.save_edit.setReadOnly(True)
-        default_save_path = f'D:/yutobe/{time.strftime('%Y-%m-%d')}'
+        default_save_path = f'E:\\yutobe\\{time.strftime('%Y-%m')}'
         self.save_edit.setText(default_save_path)
         if not os.path.exists(default_save_path):
             os.makedirs(default_save_path, exist_ok=True)
@@ -174,6 +218,16 @@ class MediaDownloader(QMainWindow):
         url_layout.addWidget(url_label)
         url_layout.addWidget(self.url_edit)
 
+        # 3. 媒体地址输入区域
+        convert_169_layout = QHBoxLayout()
+        # 1. 创建基础复选框
+        self.convert_169_checkbox = QCheckBox("是否转换为16：9")
+        # 设置默认选中状态
+        self.convert_169_checkbox.setChecked(False)
+        # 绑定状态变化信号
+        self.convert_169_checkbox.stateChanged.connect(self.on_checkbox_state_change)
+        convert_169_layout.addWidget(self.convert_169_checkbox)
+
         # 4. 开始下载按钮
         btn_layout = QHBoxLayout()
         self.download_btn = QPushButton("开始下载")
@@ -210,6 +264,7 @@ class MediaDownloader(QMainWindow):
         main_layout.addLayout(cookie_layout)
         main_layout.addLayout(type_layout)
         main_layout.addLayout(url_layout)
+        main_layout.addLayout(convert_169_layout)
         main_layout.addLayout(btn_layout)
         main_layout.addLayout(log_layout)
 
@@ -220,13 +275,20 @@ class MediaDownloader(QMainWindow):
             self.save_edit.setText(path)
             self.append_log(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 已选择保存路径: {path}")
 
+    def on_checkbox_state_change(self, state) :
+        """复选框状态变化的回调函数"""
+        if state == Qt.CheckState.Checked:
+            print("设置转为16：9视频")
+        elif state == Qt.CheckState.Unchecked:
+            print("取消转为16：9视频")
+
     def select_cookie_path(self):
-        path, _ = QFileDialog.getOpenFileName(self, "选择Cookie位置", r'D:\yutobe\cookiefile', '文本文件 (*.txt)')
+        path, _ = QFileDialog.getOpenFileName(self, "选择Cookie位置", r'E:\yutobe\cookiefile', '文本文件 (*.txt)')
         if path:
             self.cookie_edit.setText(path)
             self.append_log(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 已选择Cookie路径: {path}")
         else:
-            self.cookie_edit.setText(r'D:\yutobe\cookiefile\www.youtube.com_cookies.txt')
+            self.cookie_edit.setText(r'D:E:\yutobe\cookiefile\www.youtube.com_cookies.txt')
             self.append_log(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Cookie默认路径: {self.cookie_edit.text()}")
 
     def clear_cookie_path(self):
@@ -276,6 +338,7 @@ class MediaDownloader(QMainWindow):
             'media_type' : media_type,
             'media_url': media_url,
             'cookie_file': self.cookie_edit.text().strip(),
+            'convert_169':self.convert_169_checkbox.isChecked()
         })
         self.download_thread.log_signal.connect(self.append_log)
         self.download_thread.finish_signal.connect(self.download_finished)
