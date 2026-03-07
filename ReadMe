@@ -1,0 +1,2 @@
+# add proj
+git config --global --add safe.directory G:/jetbrain/project/pycharm/PythonTool
