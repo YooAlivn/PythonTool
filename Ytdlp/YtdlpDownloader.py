@@ -45,6 +45,10 @@ class DownloadThread(QThread):
         self.media_url = window_param.get("media_url")
         self.cookie_file = window_param.get("cookie_file")
         self.convert_169 = window_param.get("convert_169")
+        self.logo_path = window_param.get("logo_edit")
+        self.logo_scale = window_param.get("logo_scale")
+        self.add_text = window_param.get("add_text_edit")
+        self.logo_text_set = window_param.get("logo_text_set")
 
     def run_ffmpeg_command(self, command, msg):
         self.log_signal.emit(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] cmd: {command}")
@@ -102,26 +106,28 @@ class DownloadThread(QThread):
                 if self.run_ffmpeg_command(ffmpeg_cmd, "重新编码完成") == 0:
                     os.remove(src_lp_media_name)
 
-                video_16_9_add_logo = None
-                # 转为16：9视频 并添加水印
+                video_16_9 = None
+                # 转为16：9视频
                 if self.convert_169:
                     ### 转换为16：9
                     video_16_9 = os.path.join(self.save_path, f'hp_{new_time_str}_16_9.mp4')
                     command = (f'ffmpeg -y -i "{hp_mp4}" '
                                f'-filter_complex "[0:v]scale=ih*16/9:-1,boxblur=luma_radius=min(h\,w)/20:luma_power=1:chroma_radius=min(h\,w)/20:chroma_power=1,setsar=1[bg];[0:v]scale=-1:ih[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,crop=w=iw:h=iw*9/16" '
                                f'-c:a copy "{video_16_9}"')
-                    if self.run_ffmpeg_command(command, "视频已经转换为16：9规格") == 0:
-                        os.remove(hp_mp4)
+                    self.run_ffmpeg_command(command, "视频已经转换为16：9规格")
+                logo_text_set = self.logo_text_set if self.logo_text_set else '0.8'
+                video_final = os.path.join(self.save_path, f'hp_{new_time_str}_16_9_final.mp4')
+                if self.logo_path and os.path.exists(self.logo_path):
                     ### 添加文本
-                    video_16_9_add_logo = os.path.join(self.save_path, f'hp_{new_time_str}_16_9_add_logo.mp4')
-                    logo = r"E:/yutobe/logo/logo31.png"
-                    add_logo = f'ffmpeg -y -i {video_16_9} -i "{logo}" -filter_complex "[1:v]scale=150:-1,format=rgba,colorchannelmixer=aa=0.8[logo];[0:v][logo]overlay=W-w-10:10" -c:v libx264 -crf 23 -c:a copy {video_16_9_add_logo}'
-                    if self.run_ffmpeg_command(add_logo, "视频已经成功添加logo") == 0:
-                        os.remove(video_16_9)
-
+                    add_logo = f'ffmpeg -y -i {video_16_9 if video_16_9 else hp_mp4} -i "{self.logo_path}" -filter_complex "[1:v]scale={self.logo_scale}:-1,format=rgba,colorchannelmixer=aa={logo_text_set}[logo];[0:v][logo]overlay=W-w-10:10" -c:v libx264 -crf 23 -c:a copy {video_final}'
+                    self.run_ffmpeg_command(add_logo, "视频已经成功添加logo")
+                else:
+                    text = self.add_text if self.add_text else '@JFMedia'
+                    add_text = f'ffmpeg -y -i {video_16_9 if video_16_9 else hp_mp4} -vf "drawtext=fontfile=\'E\\:\\\\yutobe\\\\FFmpeg\\\\STCAIYUN.TTF\':text=\'{text}\':x=w-tw-20:y=20:fontsize=50:fontcolor=NavajoWhite@{logo_text_set}" {video_final}'
+                    self.run_ffmpeg_command(add_text, f"视频已经成功添加文字{text}")
             # 模拟下载完成
             self.log_signal.emit(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 下载并处理完成！文件保存至: "
-                                 f"{video_16_9_add_logo if video_16_9_add_logo else hp_mp4}")
+                                 f"{video_final if video_final else hp_mp4}")
             self.finish_signal.emit(True)
 
         except Exception as e:
@@ -182,7 +188,7 @@ class MediaDownloader(QMainWindow):
         save_layout.addWidget(self.save_edit)
         save_layout.addWidget(save_btn)
 
-        # 1. 媒体存放位置区域
+        # 1. Cookie 媒体存放位置区域
         cookie_layout = QHBoxLayout()
         cookie_label = QLabel("Cookie位置:")
         cookie_label.setFixedWidth(80)
@@ -218,7 +224,7 @@ class MediaDownloader(QMainWindow):
         url_layout.addWidget(url_label)
         url_layout.addWidget(self.url_edit)
 
-        # 3. 媒体地址输入区域
+        # 3. 转换设置
         convert_169_layout = QHBoxLayout()
         # 1. 创建基础复选框
         self.convert_169_checkbox = QCheckBox("是否转换为16：9")
@@ -227,6 +233,41 @@ class MediaDownloader(QMainWindow):
         # 绑定状态变化信号
         self.convert_169_checkbox.stateChanged.connect(self.on_checkbox_state_change)
         convert_169_layout.addWidget(self.convert_169_checkbox)
+
+        logo_label = QLabel("logo文件:")
+        self.logo_edit = QLineEdit()
+        self.logo_edit.setPlaceholderText("选择logo文件保存的路径...")
+        self.logo_edit.setReadOnly(True)
+        logo_btn = QPushButton("浏览")
+        logo_btn.clicked.connect(self.select_logo_path)
+        logo_clear_btn = QPushButton("清空")
+        logo_clear_btn.clicked.connect(self.clear_logo_path)
+        convert_169_layout.addWidget(logo_label)
+        convert_169_layout.addWidget(self.logo_edit)
+        convert_169_layout.addWidget(logo_btn)
+        convert_169_layout.addWidget(logo_clear_btn)
+
+        logo_width_label = QLabel("logo宽:")
+        self.logo_scale = QLineEdit()
+        self.logo_scale.setPlaceholderText("设置logo宽值...")
+        self.logo_scale.setText("150")
+        convert_169_layout.addWidget(logo_width_label)
+        convert_169_layout.addWidget(self.logo_scale)
+
+        add_text_layout = QHBoxLayout()
+        add_text_label = QLabel("添加文字:")
+        add_text_label.setFixedWidth(80)
+        self.add_text_edit = QLineEdit()
+        self.add_text_edit.setPlaceholderText("设置添加文字...")
+        self.add_text_edit.setText("@JFMedia")
+        add_text_layout.addWidget(add_text_label)
+        add_text_layout.addWidget(self.add_text_edit)
+        logo_text_set_label = QLabel("模糊度:")
+        self.logo_text_set = QLineEdit()
+        self.logo_text_set.setPlaceholderText("设置模糊度...")
+        self.logo_text_set.setText("0.8")
+        add_text_layout.addWidget(logo_text_set_label)
+        add_text_layout.addWidget(self.logo_text_set)
 
         # 4. 开始下载按钮
         btn_layout = QHBoxLayout()
@@ -265,6 +306,7 @@ class MediaDownloader(QMainWindow):
         main_layout.addLayout(type_layout)
         main_layout.addLayout(url_layout)
         main_layout.addLayout(convert_169_layout)
+        main_layout.addLayout(add_text_layout)
         main_layout.addLayout(btn_layout)
         main_layout.addLayout(log_layout)
 
@@ -278,9 +320,9 @@ class MediaDownloader(QMainWindow):
     def on_checkbox_state_change(self, state) :
         """复选框状态变化的回调函数"""
         if state == Qt.CheckState.Checked:
-            print("设置转为16：9视频")
+            self.append_log(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 设置转为16：9视频")
         elif state == Qt.CheckState.Unchecked:
-            print("取消转为16：9视频")
+            self.append_log(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 取消转为16：9视频")
 
     def select_cookie_path(self):
         path, _ = QFileDialog.getOpenFileName(self, "选择Cookie位置", r'E:\yutobe\cookiefile', '文本文件 (*.txt)')
@@ -294,6 +336,16 @@ class MediaDownloader(QMainWindow):
     def clear_cookie_path(self):
         self.cookie_edit.setText('')
         self.append_log(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Cookie默认路径已清空")
+
+    def select_logo_path(self):
+        logo_path, _ = QFileDialog.getOpenFileName(self, "选择logo位置", r'E:\yutobe\logo', 'Logo文件 (*.png)')
+        if logo_path:
+            self.logo_edit.setText(logo_path)
+            self.append_log(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 已选择Logo路径: {logo_path}")
+
+    def clear_logo_path(self):
+        self.logo_edit.setText('')
+        self.append_log(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Logo路径已清空")
 
     def append_log(self, text):
         """追加日志内容"""
@@ -338,7 +390,11 @@ class MediaDownloader(QMainWindow):
             'media_type' : media_type,
             'media_url': media_url,
             'cookie_file': self.cookie_edit.text().strip(),
-            'convert_169':self.convert_169_checkbox.isChecked()
+            'convert_169':self.convert_169_checkbox.isChecked(),
+            'logo_edit': self.logo_edit.text().strip(),
+            'logo_scale': self.logo_scale.text().strip(),
+            'add_text_edit': self.add_text_edit.text().strip(),
+            'logo_text_set': self.logo_text_set.text().strip(),
         })
         self.download_thread.log_signal.connect(self.append_log)
         self.download_thread.finish_signal.connect(self.download_finished)
