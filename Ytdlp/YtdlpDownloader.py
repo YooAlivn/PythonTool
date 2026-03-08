@@ -115,13 +115,16 @@ class DownloadThread(QThread):
                                f'-filter_complex "[0:v]scale=ih*16/9:-1,boxblur=luma_radius=min(h\,w)/20:luma_power=1:chroma_radius=min(h\,w)/20:chroma_power=1,setsar=1[bg];[0:v]scale=-1:ih[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,crop=w=iw:h=iw*9/16" '
                                f'-c:a copy "{video_16_9}"')
                     self.run_ffmpeg_command(command, "视频已经转换为16：9规格")
+
+                # 添加文字或者logo
                 logo_text_set = self.logo_text_set if self.logo_text_set else '0.8'
                 video_final = os.path.join(self.save_path, f'hp_{new_time_str}_16_9_final.mp4')
                 if self.logo_path and os.path.exists(self.logo_path):
-                    ### 添加文本
+                    ### 添加logo
                     add_logo = f'ffmpeg -y -i {video_16_9 if video_16_9 else hp_mp4} -i "{self.logo_path}" -filter_complex "[1:v]scale={self.logo_scale}:-1,format=rgba,colorchannelmixer=aa={logo_text_set}[logo];[0:v][logo]overlay=W-w-10:10" -c:v libx264 -crf 23 -c:a copy {video_final}'
                     self.run_ffmpeg_command(add_logo, "视频已经成功添加logo")
                 else:
+                    ### 添加文字
                     text = self.add_text if self.add_text else '@JFMedia'
                     add_text = f'ffmpeg -y -i {video_16_9 if video_16_9 else hp_mp4} -vf "drawtext=fontfile=\'E\\:\\\\yutobe\\\\FFmpeg\\\\STCAIYUN.TTF\':text=\'{text}\':x=w-tw-20:y=20:fontsize=50:fontcolor=NavajoWhite@{logo_text_set}" {video_final}'
                     self.run_ffmpeg_command(add_text, f"视频已经成功添加文字{text}")
