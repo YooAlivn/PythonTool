@@ -85,7 +85,16 @@ class DownloadThread(QThread):
             # 设置Cookie
             if self.cookie_file:
                 ydl_opts['cookiefile'] = self.cookie_file
-
+            if self.media_type == "bestaudio/best":
+                ydl_opts["writethumbnail"] = False
+                ydl_opts["audioformat"] = "mp3"
+                ydl_opts["extractaudio"] = True
+                ydl_opts["postprocessors"] = [{
+                    'key': 'FFmpegExtractAudio',  # 必须用这个 key
+                    'preferredcodec': 'mp3',  # ← 这里才是真正指定 mp3 的地方
+                    'preferredquality': '0',  # 0 = 最高质量（VBR ~245-320kbps），越大质量越差
+                    # 或固定比特率：'preferredquality': '320'（但不推荐，0 更好）
+                }]
                 # 开始下载
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info_dict = ydl.extract_info(self.media_url, download=True)
@@ -94,6 +103,11 @@ class DownloadThread(QThread):
                 # 2. 获取完整文件路径
                 full_path = ydl.prepare_filename(info_dict)
                 self.log_signal.emit(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 完整文件路径: {full_path}")
+                if not full_path.endswith('.mp4'):
+                    # 模拟下载完成
+                    self.log_signal.emit(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 下载并处理完成！文件已经保存")
+                    self.finish_signal.emit(True)
+                    return
                 new_time_str = time.strftime('%Y%m%d%H%M%S')
                 # 低质量原文件
                 src_lp_media_name = os.path.join(self.save_path, f'lp_{new_time_str}.mp4')
@@ -216,7 +230,7 @@ class MediaDownloader(QMainWindow):
         self.type_combo = QComboBox()
         # 添加常见媒体类型
         self.type_combo.addItems(["bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4] / bv*+ba/b", "bestvideo*+bestaudio/best",
-                                  "bv*+ba/b", "bv+ba/b"])
+                                  "bv*+ba/b", "bv+ba/b", "bestaudio/best"])
         type_layout.addWidget(type_label)
         type_layout.addWidget(self.type_combo)
 
