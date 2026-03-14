@@ -89,6 +89,8 @@ class DownloadThread(QThread):
                 # 开始下载
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info_dict = ydl.extract_info(self.media_url, download=True)
+                # 获取视频标题
+                self.log_signal.emit(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 标题: {info_dict.get('title')}")
                 # 2. 获取完整文件路径
                 full_path = ydl.prepare_filename(info_dict)
                 self.log_signal.emit(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 完整文件路径: {full_path}")
