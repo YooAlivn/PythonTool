@@ -59,8 +59,8 @@ def speech_to_text(audio_path, model_size="large"):
 
 
 def translate_text(text, target_lang="zh-CN"):
-    api_id = '20260326002581376'
-    api_key = '6CYWfjINUtq_5OtJ66Ud'
+    api_id = 'X'
+    api_key = 'X'
     """翻译文字（默认翻译成中文）"""
     if not text:
         return ""
